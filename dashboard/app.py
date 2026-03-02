@@ -247,7 +247,7 @@ with col_left:
         textinfo='percent',
         textfont_size=11,
     )
-    st.plotly_chart(fig_dist, use_container_width=True)
+    st.plotly_chart(fig_dist, width="stretch")
 
 # ============================================================
 # TILE 2: Daily Activity Trends (Temporal)
