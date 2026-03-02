@@ -1,0 +1,51 @@
+version: 2
+
+sources:
+  - name: github_raw
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: github_analytics
+    tables:
+      - name: external_github_events
+        description: "Raw GitHub events from GH Archive (external table over GCS Parquet)"
+
+models:
+  - name: stg_github_events
+    description: "Cleaned and typed GitHub events"
+    columns:
+      - name: event_id
+        description: "Unique event identifier"
+        tests:
+          - unique
+          - not_null
+      - name: event_type
+        description: "Type of GitHub event"
+        tests:
+          - not_null
+      - name: created_at
+        tests:
+          - not_null
+
+  - name: fct_daily_activity
+    description: "Daily aggregation of GitHub events by type"
+    columns:
+      - name: event_date
+        tests:
+          - not_null
+      - name: event_count
+        tests:
+          - not_null
+
+  - name: fct_top_repos
+    description: "Top repositories by activity"
+    columns:
+      - name: repo_name
+        tests:
+          - not_null
+
+  - name: fct_event_distribution
+    description: "Distribution of event types for dashboard"
+    columns:
+      - name: event_type
+        tests:
+          - unique
+          - not_null

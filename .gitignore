@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.env
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfvars
+
+# Spark
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Data files (too large for git)
+data/
+*.json.gz
+*.parquet
+*.csv
+
+# IDE
+.vscode/
+.idea/
+
+# dbt
+dbt/github_analytics/target/
+dbt/github_analytics/dbt_packages/
+dbt/github_analytics/logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# GCP credentials
+*.json
+!dbt/github_analytics/dbt_project.yml
+!dbt/github_analytics/packages.yml

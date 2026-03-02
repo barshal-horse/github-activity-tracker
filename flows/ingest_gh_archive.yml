@@ -1,0 +1,58 @@
+id: ingest-gh-archive
+namespace: github-activity-tracker
+
+description: |
+  Orchestrates the GH Archive data pipeline:
+  1. Download hourly JSON archives from GH Archive
+  2. Upload raw files to GCS data lake
+  3. Trigger Spark batch processing
+
+inputs:
+  - id: start_date
+    type: STRING
+    defaults: "2026-02-17"
+    description: Start date (YYYY-MM-DD)
+
+  - id: end_date
+    type: STRING
+    defaults: "2026-02-23"
+    description: End date inclusive (YYYY-MM-DD)
+
+tasks:
+  - id: download_gharchive
+    type: io.kestra.plugin.scripts.python.Commands
+    description: Download GH Archive hourly JSON files
+    commands:
+      - python ingestion/download_gharchive.py --start-date {{ inputs.start_date }} --end-date {{ inputs.end_date }}
+
+  - id: upload_to_gcs
+    type: io.kestra.plugin.scripts.python.Commands
+    description: Upload raw files to GCS data lake
+    commands:
+      - python ingestion/upload_to_gcs.py --start-date {{ inputs.start_date }} --end-date {{ inputs.end_date }}
+
+  - id: spark_processing
+    type: io.kestra.plugin.scripts.python.Commands
+    description: Process raw JSON with PySpark → Parquet
+    commands:
+      - python spark/process_events.py --start-date {{ inputs.start_date }} --end-date {{ inputs.end_date }}
+
+  - id: dbt_run
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Run dbt transformations
+    commands:
+      - cd dbt/github_analytics && dbt run
+
+  - id: dbt_test
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Run dbt tests
+    commands:
+      - cd dbt/github_analytics && dbt test
+
+triggers:
+  - id: daily_schedule
+    type: io.kestra.core.models.triggers.types.Schedule
+    cron: "0 6 * * *"  # Run daily at 6 AM UTC
+    inputs:
+      start_date: "{{ trigger.date | dateAdd(-1, 'DAYS') | date('yyyy-MM-dd') }}"
+      end_date: "{{ trigger.date | dateAdd(-1, 'DAYS') | date('yyyy-MM-dd') }}"
