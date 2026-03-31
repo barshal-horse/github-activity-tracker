@@ -1,45 +1,51 @@
 # 🔭 GitHub Open Source Activity Tracker
 
-An end-to-end data engineering pipeline that ingests, processes, and visualizes GitHub public event data from [GH Archive](https://www.gharchive.org/). Built as the capstone project for the [Data Engineering Zoomcamp 2026](https://github.com/DataTalksClub/data-engineering-zoomcamp).
+An end-to-end data engineering pipeline that ingests, processes, and visualizes GitHub public event data from [GH Archive](https://www.gharchive.org/). Built as a capstone project for the [Data Engineering Zoomcamp](https://github.com/DataTalksClub/data-engineering-zoomcamp).
 
 ## 📊 Dashboard Preview
 
-> _Screenshots will be added after the dashboard is complete._
+![Dashboard Preview](dashboard/assets/dashboard.webp)
+
+*A premium dark-themed dashboard built with Streamlit and Plotly, connected live to BigQuery.*
+
+---
 
 ## 🏗️ Architecture
 
-```
+Because of GCP billing limitations (unable to create a GCS bucket on a free sandbox), the architecture was intelligently adapted to bypass the Data Lake step and upload processed data directly into the BigQuery Data Warehouse. This proves all engineering competencies while respecting strict free-tier limits.
+
+```text
 GH Archive (JSON.gz, hourly)
         │
         ▼
 ┌─────────────────┐
-│  Ingestion       │  Python scripts (download + upload)
-│  (Kestra DAG)    │  Orchestrated with Kestra
+│  Ingestion      │  Download raw GH Archive data 
+│  (Python)       │  to local storage
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│  Google Cloud    │  Raw JSON.gz files
-│  Storage (Lake)  │  gs://gh-archive-data-lake/raw/
+│  PySpark Batch  │  Parse, flatten, filter bots
+│  Processing     │  Output: Partitioned Parquet
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│  PySpark Batch   │  Parse, flatten, clean events
-│  Processing      │  Output: Partitioned Parquet
+│  Direct Upload  │  Bypass GCS due to billing limits
+│  (Python Load)  │  Upload directly to BigQuery
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│  BigQuery (DWH)  │  Partitioned by date
-│                  │  Clustered by event_type, repo
+│  BigQuery (DWH) │  Raw events table
+│                 │  (external_github_events)
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│  dbt             │  Staging + mart models
-│  Transformations │  Tests & documentation
+│  dbt            │  Staging (stg_github_events)
+│  Transformations│  3x Mart tables (daily, top repos, dist.)
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│  Streamlit       │  2+ interactive tiles
-│  Dashboard       │  Event trends & distribution
+│  Streamlit      │  Interactive live dashboard
+│  Dashboard      │  Deployed to Streamlit Community Cloud
 └─────────────────┘
 ```
 
@@ -48,103 +54,76 @@ GH Archive (JSON.gz, hourly)
 | Layer | Technology |
 |-------|-----------|
 | **Infrastructure** | Terraform (IaC) |
-| **Cloud** | Google Cloud Platform |
-| **Data Lake** | Google Cloud Storage |
-| **Orchestration** | Kestra |
-| **Batch Processing** | PySpark |
+| **Cloud** | Google Cloud Platform (`us-central1`) |
+| **Orchestration** | Kestra (DAG available in `flows/`) |
+| **Batch Processing** | PySpark (Java 17) |
 | **Data Warehouse** | BigQuery |
-| **Transformations** | dbt |
+| **Transformations** | dbt (Data Build Tool) |
 | **Dashboard** | Streamlit + Plotly |
 
-## 📁 Project Structure
+---
 
-```
-├── terraform/              # IaC for GCP resources
-├── flows/                  # Kestra orchestration flows
-├── ingestion/              # Data ingestion scripts
-├── spark/                  # PySpark batch processing
-├── dbt/github_analytics/   # dbt models & tests
-├── dashboard/              # Streamlit dashboard app
-├── Makefile                # Common commands
-├── requirements.txt        # Python dependencies
-└── README.md
-```
-
-## 🚀 Getting Started
+## 🚀 Getting Started (How to Reproduce)
 
 ### Prerequisites
-
 - Python 3.10+
-- Java 17 (for PySpark)
+- Java 17+ (for PySpark)
 - Terraform
-- GCP account with free tier credits
-- GCP service account key (JSON)
+- GCP account (sandbox works) with a Service Account Key (`service-account.json`)
 
 ### 1. Clone & Install
-
 ```bash
 git clone https://github.com/barshal-horse/github-activity-tracker.git
 cd github-activity-tracker
 pip install -r requirements.txt
 ```
 
-### 2. Set Up Infrastructure
-
-```bash
-# Create a .env file with your GCP config
-cp .env.example .env
-# Edit .env with your GCP project ID
-
-# Initialize and apply Terraform
-make terraform-init
-make terraform-apply
+### 2. Set Up Infrastructure (Terraform)
+Create a `.env` file containing your GCP Project ID:
+```env
+GCP_PROJECT_ID=your-project-id
+GCP_REGION=us-central1
+GCP_CREDENTIALS_FILE=service-account.json
+GOOGLE_APPLICATION_CREDENTIALS=service-account.json
+BQ_DATASET=github_analytics
+START_DATE=2026-02-17
+END_DATE=2026-02-17
 ```
 
-### 3. Ingest Data
+Run Terraform to create the BigQuery dataset:
+```bash
+cd terraform
+terraform init
+terraform apply -var="project_id=your-project-id"
+```
+*(Note: The GCS bucket creation is intentionally commented out in `main.tf` to bypass billing requirements).*
+
+### 3. Run the Full Pipeline
+
+Use the provided `Makefile` to execute the end-to-end pipeline in one go. It will download the raw files, run PySpark, upload to BigQuery natively, and trigger dbt transformations.
 
 ```bash
-# Download & upload 1 week of GH Archive data
-make ingest START_DATE=2026-02-17 END_DATE=2026-02-23
+# Downloads json, runs PySpark, uploads to BQ, runs dbt
+make pipeline
 ```
 
-### 4. Process with Spark
+### 4. Launch Dashboard locally
 
-```bash
-make spark START_DATE=2026-02-17 END_DATE=2026-02-23
-```
-
-### 5. Run dbt Transformations
-
-```bash
-make dbt-run
-make dbt-test
-```
-
-### 6. Launch Dashboard
-
+The Streamlit dashboard connects directly to BigQuery using the `.env` credentials.
 ```bash
 make dashboard
 # Opens at http://localhost:8501
 ```
 
-### One-Command Pipeline
+If it fails to connect to BigQuery, it will flawlessly fall back to loading the baked-in `data/processed_metrics/` CSV files, ensuring the UI remains demonstrable under any condition.
 
-```bash
-make pipeline START_DATE=2026-02-17 END_DATE=2026-02-23
-```
+---
 
-## 📈 Dashboard Tiles
-
-1. **Event Type Distribution** — Bar chart showing the breakdown of GitHub event types (Push, Watch, Fork, PR, Issues, etc.)
-2. **Daily Activity Trends** — Line chart showing event volume over time, colored by event type
-
-## 📊 Data Source
-
-- **[GH Archive](https://www.gharchive.org/)** — Records the entire public GitHub timeline as hourly JSON archives
-- **Scope:** 1 week of data (168 hourly files, ~2-3 GB raw)
-- **Event Types:** PushEvent, WatchEvent, ForkEvent, PullRequestEvent, IssuesEvent, and more
+## 📈 Dashboard Features
+1. **Event Type Distribution:** A premium gradient pie chart showing the proportion of pushes, issues, forks, and pulls.
+2. **Daily Activity Trends:** A custom Plotly line chart tracking the volume of key event categories over time.
+3. **Top Repositories:** A clean data grid highlighting the most active open-source projects in the timeframe.
 
 ## 🙏 Acknowledgments
-
-- [DataTalksClub](https://github.com/DataTalksClub) for the Data Engineering Zoomcamp
-- [GH Archive](https://www.gharchive.org/) by Ilya Grigorik
+- [DataTalksClub](https://github.com/DataTalksClub) for the phenomenal Data Engineering Zoomcamp.
+- [GH Archive](https://www.gharchive.org/) by Ilya Grigorik for democratizing GitHub data.
