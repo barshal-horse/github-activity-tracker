@@ -2,6 +2,12 @@
 
 An end-to-end data engineering pipeline that ingests, processes, and visualizes GitHub public event data from [GH Archive](https://www.gharchive.org/). Built as a capstone project for the [Data Engineering Zoomcamp](https://github.com/DataTalksClub/data-engineering-zoomcamp).
 
+🟢 **Live Dashboard:** [GitHub Activity Tracker (Streamlit)](https://app-activity-tracker-ebvyfbypjwizccmyv7mx8w.streamlit.app/)
+
+## 📊 Dashboard Preview
+
+![Dashboard Preview](dashboard/assets/dashboard.webp)
+
 *A premium dark-themed dashboard built with Streamlit and Plotly, connected live to BigQuery.*
 
 ---
