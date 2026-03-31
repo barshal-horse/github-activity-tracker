@@ -9,8 +9,8 @@ SELECT
     event_id,
     event_type,
     CAST(created_at AS TIMESTAMP) AS created_at,
-    event_date,
-    event_hour,
+    DATE(CAST(created_at AS TIMESTAMP)) AS event_date,
+    EXTRACT(HOUR FROM CAST(created_at AS TIMESTAMP)) AS event_hour,
 
     -- Actor
     CAST(actor_id AS INT64) AS actor_id,

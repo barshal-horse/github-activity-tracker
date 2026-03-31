@@ -26,7 +26,7 @@ terraform-destroy:
 # ============================================================
 ingest:
 	python ingestion/download_gharchive.py --start-date $(START_DATE) --end-date $(END_DATE)
-	python ingestion/upload_to_gcs.py --start-date $(START_DATE) --end-date $(END_DATE)
+	# python ingestion/upload_to_gcs.py --start-date $(START_DATE) --end-date $(END_DATE)
 
 ingest-local:
 	python ingestion/download_gharchive.py --start-date $(START_DATE) --end-date $(END_DATE)
@@ -36,6 +36,12 @@ ingest-local:
 # ============================================================
 spark:
 	python spark/process_events.py --start-date $(START_DATE) --end-date $(END_DATE)
+
+# ============================================================
+# BigQuery Upload
+# ============================================================
+upload-bq:
+	python ingestion/upload_to_bigquery.py
 
 # ============================================================
 # dbt
@@ -56,9 +62,9 @@ dashboard:
 	streamlit run dashboard/app.py
 
 # ============================================================
-# Full Pipeline
+# Full Pipeline (Bypassing GCS)
 # ============================================================
-pipeline: ingest spark dbt-run
+pipeline: ingest-local spark upload-bq dbt-run
 	@echo "Pipeline complete!"
 
 # ============================================================

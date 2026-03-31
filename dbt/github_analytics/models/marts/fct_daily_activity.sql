@@ -20,4 +20,3 @@ SELECT
 FROM {{ ref('stg_github_events') }}
 
 GROUP BY event_date, event_type
-ORDER BY event_date, event_count DESC

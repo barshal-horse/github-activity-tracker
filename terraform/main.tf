@@ -14,25 +14,25 @@ provider "google" {
 }
 
 # ============================================================
-# Google Cloud Storage — Data Lake
+# Google Cloud Storage — Data Lake (Disabled: Requires Billing)
 # ============================================================
-resource "google_storage_bucket" "data_lake" {
-  name          = "${var.gcs_bucket_name}-${var.project_id}"
-  location      = var.region
-  storage_class = "STANDARD"
-  force_destroy = true
-
-  uniform_bucket_level_access = true
-
-  lifecycle_rule {
-    condition {
-      age = 90 # Auto-delete after 90 days to save costs
-    }
-    action {
-      type = "Delete"
-    }
-  }
-}
+# resource "google_storage_bucket" "data_lake" {
+#   name          = "${var.gcs_bucket_name}-${var.project_id}"
+#   location      = var.region
+#   storage_class = "STANDARD"
+#   force_destroy = true
+# 
+#   uniform_bucket_level_access = true
+# 
+#   lifecycle_rule {
+#     condition {
+#       age = 90
+#     }
+#     action {
+#       type = "Delete"
+#     }
+#   }
+# }
 
 # ============================================================
 # BigQuery — Data Warehouse
@@ -46,18 +46,18 @@ resource "google_bigquery_dataset" "github_analytics" {
   delete_contents_on_destroy = true
 }
 
-# External table pointing to processed Parquet in GCS
-resource "google_bigquery_table" "external_events" {
-  dataset_id = google_bigquery_dataset.github_analytics.dataset_id
-  table_id   = "external_github_events"
-
-  deletion_protection = false
-
-  external_data_configuration {
-    autodetect    = true
-    source_format = "PARQUET"
-    source_uris   = ["gs://${google_storage_bucket.data_lake.name}/processed/events/*.parquet"]
-  }
-
-  depends_on = [google_bigquery_dataset.github_analytics]
-}
+# External table (Disabled: requires GCS bucket)
+# resource "google_bigquery_table" "external_events" {
+#   dataset_id = google_bigquery_dataset.github_analytics.dataset_id
+#   table_id   = "external_github_events"
+# 
+#   deletion_protection = false
+# 
+#   external_data_configuration {
+#     autodetect    = true
+#     source_format = "PARQUET"
+#     source_uris   = ["gs://${google_storage_bucket.data_lake.name}/processed/events/*.parquet"]
+#   }
+# 
+#   depends_on = [google_bigquery_dataset.github_analytics]
+# }

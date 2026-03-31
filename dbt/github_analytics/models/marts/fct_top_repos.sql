@@ -2,8 +2,7 @@
 -- Top repositories ranked by total activity
 
 {{ config(
-    materialized='table',
-    cluster_by=['event_type']
+    materialized='table'
 ) }}
 
 WITH repo_activity AS (
