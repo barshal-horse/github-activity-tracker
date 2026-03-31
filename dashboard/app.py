@@ -1,14 +1,15 @@
 """
 GitHub Open Source Activity Tracker — Streamlit Dashboard
 
-Visualizes GitHub event data from BigQuery.
-Includes 2+ tiles: event distribution (categorical) and daily trends (temporal).
+Visualizes real GitHub event data from GH Archive.
+Loads pre-processed CSVs from dashboard/data/ directory.
 
 Usage:
     streamlit run dashboard/app.py
 """
 
 import os
+from pathlib import Path
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -64,132 +65,71 @@ st.markdown("""
 
 
 # ============================================================
-# Data Loading
+# Color map for event types
+# ============================================================
+COLOR_MAP = {
+    "PushEvent": "#58a6ff",
+    "WatchEvent": "#f0883e",
+    "PullRequestEvent": "#3fb950",
+    "IssuesEvent": "#f85149",
+    "ForkEvent": "#bc8cff",
+    "CreateEvent": "#79c0ff",
+    "DeleteEvent": "#d2a8ff",
+    "IssueCommentEvent": "#56d364",
+    "PullRequestReviewCommentEvent": "#e3b341",
+    "PullRequestReviewEvent": "#ffa657",
+    "ReleaseEvent": "#ff7b72",
+    "MemberEvent": "#7ee787",
+    "GollumEvent": "#ffa657",
+    "CommitCommentEvent": "#a5d6ff",
+    "PublicEvent": "#8b949e",
+    "SponsorshipEvent": "#db61a2",
+}
+
+
+# ============================================================
+# Data Loading — CSV files (real data from GH Archive)
 # ============================================================
 @st.cache_data(ttl=3600)
-def load_data_from_bigquery():
-    """Load data from BigQuery mart tables."""
-    try:
-        from google.cloud import bigquery
-        client = bigquery.Client()
+def load_data():
+    """Load pre-processed CSV data from dashboard/data/ directory."""
+    data_dir = Path(__file__).parent / "data"
 
-        daily_df = client.query(
-            "SELECT * FROM `github_analytics.fct_daily_activity` ORDER BY event_date"
-        ).to_dataframe()
+    dist_df = pd.read_csv(data_dir / "event_distribution.csv")
+    hourly_df = pd.read_csv(data_dir / "hourly_activity.csv")
+    top_repos_df = pd.read_csv(data_dir / "top_repos.csv")
 
-        dist_df = client.query(
-            "SELECT * FROM `github_analytics.fct_event_distribution` ORDER BY event_count DESC"
-        ).to_dataframe()
-
-        top_repos_df = client.query(
-            "SELECT * FROM `github_analytics.fct_top_repos` ORDER BY activity_rank LIMIT 20"
-        ).to_dataframe()
-
-        return daily_df, dist_df, top_repos_df
-
-    except Exception as e:
-        st.warning(f"BigQuery not available ({e}). Using sample data for demo.")
-        return load_sample_data()
-
-
-def load_sample_data():
-    """Generate sample data for local development / demo mode."""
-    import numpy as np
-
-    # Sample daily activity
-    dates = pd.date_range("2026-02-17", "2026-02-23", freq="D")
-    event_types = ["PushEvent", "WatchEvent", "PullRequestEvent", "IssuesEvent",
-                   "ForkEvent", "CreateEvent", "DeleteEvent", "IssueCommentEvent"]
-
-    daily_rows = []
-    for d in dates:
-        for et in event_types:
-            base = {"PushEvent": 50000, "WatchEvent": 20000, "PullRequestEvent": 12000,
-                    "IssuesEvent": 5000, "ForkEvent": 4000, "CreateEvent": 15000,
-                    "DeleteEvent": 3000, "IssueCommentEvent": 18000}.get(et, 5000)
-            count = int(base * (0.7 + 0.6 * np.random.random()))
-            daily_rows.append({
-                "event_date": d.date(),
-                "event_type": et,
-                "event_count": count,
-                "unique_actors": int(count * 0.3),
-                "unique_repos": int(count * 0.15)
-            })
-    daily_df = pd.DataFrame(daily_rows)
-
-    # Sample distribution
-    dist_rows = []
-    total = sum(r["event_count"] for r in daily_rows)
-    for et in event_types:
-        et_total = sum(r["event_count"] for r in daily_rows if r["event_type"] == et)
-        dist_rows.append({
-            "event_type": et,
-            "event_count": et_total,
-            "unique_actors": int(et_total * 0.3),
-            "unique_repos": int(et_total * 0.15),
-            "percentage": round(et_total / total * 100, 2)
-        })
-    dist_df = pd.DataFrame(dist_rows).sort_values("event_count", ascending=False)
-
-    # Sample top repos
-    repos = [
-        "microsoft/vscode", "torvalds/linux", "flutter/flutter",
-        "facebook/react", "tensorflow/tensorflow", "kubernetes/kubernetes",
-        "golang/go", "rust-lang/rust", "python/cpython", "nodejs/node",
-        "angular/angular", "vuejs/vue", "django/django", "rails/rails",
-        "apache/spark", "elastic/elasticsearch", "grafana/grafana",
-        "prometheus/prometheus", "hashicorp/terraform", "vercel/next.js"
-    ]
-    top_repos_rows = []
-    for i, repo in enumerate(repos):
-        parts = repo.split("/")
-        total_events = int(5000 * (1 - i * 0.04) * (0.8 + 0.4 * np.random.random()))
-        top_repos_rows.append({
-            "repo_name": repo,
-            "repo_owner": parts[0],
-            "repo_short_name": parts[1],
-            "total_events": total_events,
-            "total_contributors": int(total_events * 0.2),
-            "push_count": int(total_events * 0.4),
-            "star_count": int(total_events * 0.2),
-            "fork_count": int(total_events * 0.1),
-            "pr_count": int(total_events * 0.15),
-            "issue_count": int(total_events * 0.15),
-            "activity_rank": i + 1
-        })
-    top_repos_df = pd.DataFrame(top_repos_rows)
-
-    return daily_df, dist_df, top_repos_df
+    return hourly_df, dist_df, top_repos_df
 
 
 # ============================================================
 # Load Data
 # ============================================================
-daily_df, dist_df, top_repos_df = load_data_from_bigquery()
+hourly_df, dist_df, top_repos_df = load_data()
 
 
 # ============================================================
 # Header
 # ============================================================
 st.markdown("# 🔭 GitHub Open Source Activity Tracker")
-st.markdown("*Analyzing millions of public GitHub events from [GH Archive](https://www.gharchive.org/)*")
+st.markdown("*Analyzing **203,312 real public GitHub events** from [GH Archive](https://www.gharchive.org/) (Feb 17, 2026)*")
 st.divider()
 
 # ============================================================
 # KPI Metrics
 # ============================================================
-total_events = dist_df["event_count"].sum()
-total_actors = dist_df["unique_actors"].sum()
-total_repos = dist_df["unique_repos"].sum()
+total_events = int(dist_df["event_count"].sum())
+total_actors = int(dist_df["unique_actors"].sum())
+total_repos = int(dist_df["unique_repos"].sum())
 num_event_types = len(dist_df)
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.metric("Total Events", f"{total_events:,.0f}")
+    st.metric("Total Events", f"{total_events:,}")
 with col2:
-    st.metric("Unique Developers", f"{total_actors:,.0f}")
+    st.metric("Unique Developers", f"{total_actors:,}")
 with col3:
-    st.metric("Active Repos", f"{total_repos:,.0f}")
+    st.metric("Active Repos", f"{total_repos:,}")
 with col4:
     st.metric("Event Types", num_event_types)
 
@@ -203,28 +143,12 @@ col_left, col_right = st.columns(2)
 with col_left:
     st.markdown("### 📊 Event Type Distribution")
 
-    color_map = {
-        "PushEvent": "#58a6ff",
-        "WatchEvent": "#f0883e",
-        "PullRequestEvent": "#3fb950",
-        "IssuesEvent": "#f85149",
-        "ForkEvent": "#bc8cff",
-        "CreateEvent": "#79c0ff",
-        "DeleteEvent": "#d2a8ff",
-        "IssueCommentEvent": "#56d364",
-        "PullRequestReviewCommentEvent": "#e3b341",
-        "ReleaseEvent": "#ff7b72",
-        "MemberEvent": "#7ee787",
-        "GollumEvent": "#ffa657",
-        "CommitCommentEvent": "#a5d6ff",
-    }
-
     fig_dist = px.pie(
         dist_df,
         names="event_type",
         values="event_count",
         color="event_type",
-        color_discrete_map=color_map,
+        color_discrete_map=COLOR_MAP,
         hole=0.4,
     )
     fig_dist.update_layout(
@@ -247,25 +171,26 @@ with col_left:
         textinfo='percent',
         textfont_size=11,
     )
-    st.plotly_chart(fig_dist, width="stretch")
+    st.plotly_chart(fig_dist, key="dist_chart")
 
 # ============================================================
-# TILE 2: Daily Activity Trends (Temporal)
+# TILE 2: Hourly Activity Trends (Temporal)
 # ============================================================
 with col_right:
-    st.markdown("### 📈 Daily Activity Trends")
+    st.markdown("### 📈 Hourly Activity Trends")
 
     # Get top 6 event types for cleaner chart
     top_events = dist_df.head(6)["event_type"].tolist()
-    daily_filtered = daily_df[daily_df["event_type"].isin(top_events)]
+    hourly_filtered = hourly_df[hourly_df["event_type"].isin(top_events)].copy()
+    hourly_filtered["time_label"] = hourly_filtered["event_date"] + " " + hourly_filtered["event_hour"].astype(str).str.zfill(2) + ":00"
 
     fig_trend = px.area(
-        daily_filtered,
-        x="event_date",
+        hourly_filtered,
+        x="time_label",
         y="event_count",
         color="event_type",
-        color_discrete_map=color_map,
-        labels={"event_count": "Events", "event_date": "Date", "event_type": "Event Type"},
+        color_discrete_map=COLOR_MAP,
+        labels={"event_count": "Events", "time_label": "Time (UTC)", "event_type": "Event Type"},
     )
     fig_trend.update_layout(
         plot_bgcolor="rgba(0,0,0,0)",
@@ -277,7 +202,7 @@ with col_right:
         margin=dict(l=20, r=20, t=20, b=20),
         height=400,
     )
-    st.plotly_chart(fig_trend, use_container_width=True)
+    st.plotly_chart(fig_trend, key="trend_chart")
 
 st.divider()
 
@@ -304,7 +229,7 @@ fig_repos.update_layout(
     margin=dict(l=20, r=20, t=20, b=20),
     height=500,
 )
-st.plotly_chart(fig_repos, use_container_width=True)
+st.plotly_chart(fig_repos, key="repos_chart")
 
 st.divider()
 
@@ -319,7 +244,6 @@ styled_dist = styled_dist.reset_index(drop=True)
 
 st.dataframe(
     styled_dist,
-    use_container_width=True,
     hide_index=True,
     column_config={
         "Total Events": st.column_config.NumberColumn(format="%d"),
@@ -338,7 +262,7 @@ st.markdown(
     <div style="text-align: center; color: #484f58; font-size: 0.8rem;">
         Built with ❤️ for <a href="https://github.com/DataTalksClub/data-engineering-zoomcamp" style="color: #58a6ff;">
         DE Zoomcamp 2026</a> |
-        Data: <a href="https://www.gharchive.org/" style="color: #58a6ff;">GH Archive</a>
+        Data: <a href="https://www.gharchive.org/" style="color: #58a6ff;">GH Archive</a> (Feb 17, 2026, 203K+ events)
     </div>
     """,
     unsafe_allow_html=True

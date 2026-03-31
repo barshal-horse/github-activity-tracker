@@ -25,6 +25,7 @@ data/
 *.json.gz
 *.parquet
 *.csv
+!dashboard/data/*.csv
 
 # IDE
 .vscode/

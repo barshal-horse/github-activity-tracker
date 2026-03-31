@@ -1,0 +1,17 @@
+event_type,event_count,unique_actors,unique_repos,percentage
+PushEvent,139538,53722,59027,68.63
+CreateEvent,15894,10615,11981,7.82
+PullRequestEvent,15231,6182,6888,7.49
+IssuesEvent,6999,1980,1965,3.44
+WatchEvent,6320,4996,4474,3.11
+DeleteEvent,5984,2734,3144,2.94
+IssueCommentEvent,4035,2268,2203,1.98
+PullRequestReviewCommentEvent,3457,773,1064,1.7
+PullRequestReviewEvent,2800,1312,1513,1.38
+ForkEvent,1418,1140,1097,0.7
+ReleaseEvent,729,527,589,0.36
+MemberEvent,417,373,389,0.21
+GollumEvent,220,102,99,0.11
+PublicEvent,149,144,148,0.07
+DiscussionEvent,80,42,43,0.04
+CommitCommentEvent,41,27,26,0.02
