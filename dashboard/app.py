@@ -1,8 +1,8 @@
 """
 GitHub Open Source Activity Tracker — Streamlit Dashboard
 
-Visualizes real GitHub event data from GH Archive.
-Loads pre-processed CSVs from dashboard/data/ directory.
+Connects to BigQuery when credentials are available (Streamlit Cloud or local .env),
+falls back to CSV data files for local development.
 
 Usage:
     streamlit run dashboard/app.py
@@ -22,248 +22,338 @@ st.set_page_config(
     page_title="GitHub Activity Tracker",
     page_icon="🔭",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ============================================================
-# Custom CSS for premium look
+# Premium Dark Theme CSS
 # ============================================================
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-    * { font-family: 'Inter', sans-serif; }
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
 
-    .main { background: linear-gradient(135deg, #0d1117 0%, #161b22 100%); }
+    /* Dark background */
+    .stApp {
+        background: #0d1117;
+    }
 
-    .metric-card {
-        background: linear-gradient(135deg, #21262d 0%, #30363d 100%);
-        border: 1px solid #30363d;
-        border-radius: 12px;
-        padding: 20px;
+    /* Header styling */
+    .dashboard-header {
         text-align: center;
+        padding: 2rem 0 1rem;
     }
-
-    .metric-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #58a6ff;
+    .dashboard-header h1 {
+        background: linear-gradient(135deg, #7c3aed, #2563eb, #06b6d4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 2.5rem;
+        font-weight: 800;
+        margin-bottom: 0.25rem;
     }
-
-    .metric-label {
-        font-size: 0.85rem;
+    .dashboard-header p {
         color: #8b949e;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+        font-size: 1rem;
     }
 
-    h1, h2, h3 { color: #f0f6fc !important; }
+    /* Metric cards */
+    [data-testid="stMetricValue"] {
+        font-size: 2rem !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="stMetric"] {
+        background: linear-gradient(135deg, #161b22, #1c2333);
+        border: 1px solid #30363d;
+        border-radius: 16px;
+        padding: 1.2rem !important;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    }
 
-    .stMetric { background: #21262d; border-radius: 10px; padding: 10px; }
+    /* Section headers */
+    .section-header {
+        color: #e6edf3;
+        font-weight: 600;
+        font-size: 1.3rem;
+        padding: 0.5rem 0;
+        border-bottom: 2px solid #7c3aed;
+        margin-bottom: 1rem;
+        display: inline-block;
+    }
+
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+
+    /* Dividers */
+    hr { border-color: #21262d !important; }
+
+    /* Dataframe */
+    .stDataFrame { border-radius: 12px; overflow: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ============================================================
-# Color map for event types
+# Color palette — vibrant, modern, harmonious
 # ============================================================
-COLOR_MAP = {
-    "PushEvent": "#58a6ff",
-    "WatchEvent": "#f0883e",
-    "PullRequestEvent": "#3fb950",
-    "IssuesEvent": "#f85149",
-    "ForkEvent": "#bc8cff",
-    "CreateEvent": "#79c0ff",
-    "DeleteEvent": "#d2a8ff",
-    "IssueCommentEvent": "#56d364",
-    "PullRequestReviewCommentEvent": "#e3b341",
-    "PullRequestReviewEvent": "#ffa657",
-    "ReleaseEvent": "#ff7b72",
-    "MemberEvent": "#7ee787",
-    "GollumEvent": "#ffa657",
-    "CommitCommentEvent": "#a5d6ff",
-    "PublicEvent": "#8b949e",
-    "SponsorshipEvent": "#db61a2",
+COLORS = {
+    "PushEvent": "#7c3aed",
+    "CreateEvent": "#2563eb",
+    "PullRequestEvent": "#06b6d4",
+    "IssueCommentEvent": "#10b981",
+    "WatchEvent": "#f59e0b",
+    "IssuesEvent": "#ef4444",
+    "ForkEvent": "#ec4899",
+    "DeleteEvent": "#6366f1",
+    "PullRequestReviewCommentEvent": "#14b8a6",
+    "PullRequestReviewEvent": "#8b5cf6",
+    "ReleaseEvent": "#f97316",
+    "MemberEvent": "#22d3ee",
+    "GollumEvent": "#a78bfa",
+    "CommitCommentEvent": "#38bdf8",
+    "PublicEvent": "#64748b",
+    "SponsorshipEvent": "#db2777",
 }
 
+METRIC_COLORS = ["#7c3aed", "#2563eb", "#06b6d4", "#10b981"]
+
 
 # ============================================================
-# Data Loading — CSV files (real data from GH Archive)
+# Data Loading — BigQuery → CSV fallback
 # ============================================================
 @st.cache_data(ttl=3600)
 def load_data():
-    """Load pre-processed CSV data from dashboard/data/ directory."""
+    """Try BigQuery first, fall back to CSV files."""
+    # Try BigQuery
+    try:
+        from google.cloud import bigquery
+
+        # Check for Streamlit Cloud secrets or env var
+        if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+            from google.oauth2 import service_account
+            credentials = service_account.Credentials.from_service_account_info(
+                st.secrets["gcp_service_account"]
+            )
+            project_id = st.secrets["gcp_service_account"]["project_id"]
+            client = bigquery.Client(credentials=credentials, project=project_id)
+        elif os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+            client = bigquery.Client()
+        else:
+            raise Exception("No BigQuery credentials found")
+
+        dataset = os.getenv("BQ_DATASET", "github_analytics")
+
+        hourly_df = client.query(f"""
+            SELECT event_date, event_hour, event_type,
+                   COUNT(*) as event_count,
+                   COUNT(DISTINCT actor_login) as unique_actors,
+                   COUNT(DISTINCT repo_name) as unique_repos
+            FROM `{dataset}.stg_github_events`
+            GROUP BY event_date, event_hour, event_type
+            ORDER BY event_date, event_hour
+        """).to_dataframe()
+
+        dist_df = client.query(f"""
+            SELECT * FROM `{dataset}.fct_event_distribution`
+            ORDER BY event_count DESC
+        """).to_dataframe()
+
+        top_repos_df = client.query(f"""
+            SELECT * FROM `{dataset}.fct_top_repos`
+            ORDER BY activity_rank LIMIT 20
+        """).to_dataframe()
+
+        return hourly_df, dist_df, top_repos_df, "BigQuery"
+
+    except Exception:
+        pass
+
+    # Fallback: CSV files
     data_dir = Path(__file__).parent / "data"
+    if (data_dir / "event_distribution.csv").exists():
+        dist_df = pd.read_csv(data_dir / "event_distribution.csv")
+        hourly_df = pd.read_csv(data_dir / "hourly_activity.csv")
+        top_repos_df = pd.read_csv(data_dir / "top_repos.csv")
+        return hourly_df, dist_df, top_repos_df, "CSV"
 
-    dist_df = pd.read_csv(data_dir / "event_distribution.csv")
-    hourly_df = pd.read_csv(data_dir / "hourly_activity.csv")
-    top_repos_df = pd.read_csv(data_dir / "top_repos.csv")
-
-    return hourly_df, dist_df, top_repos_df
+    st.error("No data source available. Please set up BigQuery or run the data pipeline.")
+    st.stop()
 
 
 # ============================================================
 # Load Data
 # ============================================================
-hourly_df, dist_df, top_repos_df = load_data()
+hourly_df, dist_df, top_repos_df, data_source = load_data()
 
 
 # ============================================================
 # Header
 # ============================================================
-st.markdown("# 🔭 GitHub Open Source Activity Tracker")
-st.markdown("*Analyzing **203,312 real public GitHub events** from [GH Archive](https://www.gharchive.org/) (Feb 17, 2026)*")
-st.divider()
+total_events = int(dist_df["event_count"].sum())
+
+st.markdown(f"""
+<div class="dashboard-header">
+    <h1>🔭 GitHub Activity Tracker</h1>
+    <p>Analyzing <strong>{total_events:,}</strong> real public GitHub events from
+    <a href="https://www.gharchive.org/" style="color: #7c3aed;">GH Archive</a>
+    &nbsp;·&nbsp; Data via {data_source}</p>
+</div>
+""", unsafe_allow_html=True)
 
 # ============================================================
 # KPI Metrics
 # ============================================================
-total_events = int(dist_df["event_count"].sum())
 total_actors = int(dist_df["unique_actors"].sum())
 total_repos = int(dist_df["unique_repos"].sum())
 num_event_types = len(dist_df)
 
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("Total Events", f"{total_events:,}")
-with col2:
-    st.metric("Unique Developers", f"{total_actors:,}")
-with col3:
-    st.metric("Active Repos", f"{total_repos:,}")
-with col4:
-    st.metric("Event Types", num_event_types)
+cols = st.columns(4)
+metrics = [
+    ("⚡ Total Events", f"{total_events:,}"),
+    ("👩‍💻 Unique Developers", f"{total_actors:,}"),
+    ("📦 Active Repos", f"{total_repos:,}"),
+    ("🏷️ Event Types", str(num_event_types)),
+]
+for col, (label, value) in zip(cols, metrics):
+    col.metric(label, value)
 
-st.divider()
+st.markdown("---")
 
 # ============================================================
-# TILE 1: Event Type Distribution (Categorical)
+# TILE 1 + TILE 2 side by side
 # ============================================================
 col_left, col_right = st.columns(2)
 
 with col_left:
-    st.markdown("### 📊 Event Type Distribution")
+    st.markdown('<div class="section-header">📊 Event Type Distribution</div>', unsafe_allow_html=True)
 
     fig_dist = px.pie(
         dist_df,
         names="event_type",
         values="event_count",
         color="event_type",
-        color_discrete_map=COLOR_MAP,
-        hole=0.4,
+        color_discrete_map=COLORS,
+        hole=0.45,
     )
     fig_dist.update_layout(
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#c9d1d9", family="Inter"),
+        font=dict(color="#e6edf3", family="Inter", size=12),
         legend=dict(
-            orientation="v",
-            yanchor="middle",
-            y=0.5,
-            xanchor="left",
-            x=1.05,
-            font=dict(size=11)
+            orientation="v", yanchor="middle", y=0.5,
+            xanchor="left", x=1.02, font=dict(size=10, color="#8b949e"),
+            bgcolor="rgba(0,0,0,0)",
         ),
-        margin=dict(l=20, r=20, t=20, b=20),
-        height=400,
+        margin=dict(l=10, r=10, t=10, b=10),
+        height=420,
     )
     fig_dist.update_traces(
-        textposition='inside',
-        textinfo='percent',
-        textfont_size=11,
+        textposition='inside', textinfo='percent',
+        textfont=dict(size=11, color="white"),
+        marker=dict(line=dict(color='#0d1117', width=2)),
     )
     st.plotly_chart(fig_dist, key="dist_chart")
 
-# ============================================================
-# TILE 2: Hourly Activity Trends (Temporal)
-# ============================================================
 with col_right:
-    st.markdown("### 📈 Hourly Activity Trends")
+    st.markdown('<div class="section-header">📈 Activity Over Time</div>', unsafe_allow_html=True)
 
-    # Get top 6 event types for cleaner chart
     top_events = dist_df.head(6)["event_type"].tolist()
     hourly_filtered = hourly_df[hourly_df["event_type"].isin(top_events)].copy()
-    hourly_filtered["time_label"] = hourly_filtered["event_date"] + " " + hourly_filtered["event_hour"].astype(str).str.zfill(2) + ":00"
+
+    if "event_hour" in hourly_filtered.columns:
+        hourly_filtered["time_label"] = (
+            hourly_filtered["event_date"].astype(str) + " " +
+            hourly_filtered["event_hour"].astype(str).str.zfill(2) + ":00"
+        )
+        x_col = "time_label"
+        x_label = "Time (UTC)"
+    else:
+        x_col = "event_date"
+        x_label = "Date"
 
     fig_trend = px.area(
-        hourly_filtered,
-        x="time_label",
-        y="event_count",
-        color="event_type",
-        color_discrete_map=COLOR_MAP,
-        labels={"event_count": "Events", "time_label": "Time (UTC)", "event_type": "Event Type"},
+        hourly_filtered, x=x_col, y="event_count",
+        color="event_type", color_discrete_map=COLORS,
+        labels={"event_count": "Events", x_col: x_label, "event_type": "Type"},
     )
     fig_trend.update_layout(
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#c9d1d9", family="Inter"),
-        xaxis=dict(gridcolor="#21262d", showgrid=True),
-        yaxis=dict(gridcolor="#21262d", showgrid=True),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
-        margin=dict(l=20, r=20, t=20, b=20),
-        height=400,
+        font=dict(color="#e6edf3", family="Inter"),
+        xaxis=dict(gridcolor="#161b22", showgrid=True, color="#8b949e"),
+        yaxis=dict(gridcolor="#161b22", showgrid=True, color="#8b949e"),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=-0.35,
+            xanchor="center", x=0.5, font=dict(size=10, color="#8b949e"),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        margin=dict(l=10, r=10, t=10, b=10),
+        height=420,
     )
     st.plotly_chart(fig_trend, key="trend_chart")
 
-st.divider()
+st.markdown("---")
 
 # ============================================================
 # TILE 3: Top Repositories
 # ============================================================
-st.markdown("### 🏆 Top Repositories by Activity")
+st.markdown('<div class="section-header">🏆 Most Active Repositories</div>', unsafe_allow_html=True)
 
 fig_repos = px.bar(
     top_repos_df.head(15),
-    y="repo_name",
-    x="total_events",
+    y="repo_name", x="total_events",
     orientation="h",
     color="total_events",
-    color_continuous_scale=["#0d1117", "#1f6feb", "#58a6ff"],
-    labels={"total_events": "Total Events", "repo_name": "Repository"},
+    color_continuous_scale=["#1e1b4b", "#7c3aed", "#c084fc"],
+    labels={"total_events": "Total Events", "repo_name": ""},
 )
 fig_repos.update_layout(
     plot_bgcolor="rgba(0,0,0,0)",
     paper_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="#c9d1d9", family="Inter"),
-    yaxis=dict(autorange="reversed"),
+    font=dict(color="#e6edf3", family="Inter"),
+    yaxis=dict(autorange="reversed", color="#8b949e"),
+    xaxis=dict(gridcolor="#161b22", showgrid=True, color="#8b949e"),
     coloraxis_showscale=False,
-    margin=dict(l=20, r=20, t=20, b=20),
+    margin=dict(l=10, r=10, t=10, b=10),
     height=500,
 )
 st.plotly_chart(fig_repos, key="repos_chart")
 
-st.divider()
+st.markdown("---")
 
 # ============================================================
 # TILE 4: Event Breakdown Table
 # ============================================================
-st.markdown("### 📋 Event Type Breakdown")
+st.markdown('<div class="section-header">📋 Event Breakdown</div>', unsafe_allow_html=True)
 
-styled_dist = dist_df[["event_type", "event_count", "unique_actors", "unique_repos", "percentage"]].copy()
-styled_dist.columns = ["Event Type", "Total Events", "Unique Developers", "Active Repos", "% Share"]
-styled_dist = styled_dist.reset_index(drop=True)
+table_df = dist_df[["event_type", "event_count", "unique_actors", "unique_repos", "percentage"]].copy()
+table_df.columns = ["Event Type", "Events", "Developers", "Repos", "Share %"]
+table_df = table_df.reset_index(drop=True)
 
 st.dataframe(
-    styled_dist,
-    hide_index=True,
+    table_df, hide_index=True,
     column_config={
-        "Total Events": st.column_config.NumberColumn(format="%d"),
-        "Unique Developers": st.column_config.NumberColumn(format="%d"),
-        "Active Repos": st.column_config.NumberColumn(format="%d"),
-        "% Share": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
+        "Events": st.column_config.NumberColumn(format="%d"),
+        "Developers": st.column_config.NumberColumn(format="%d"),
+        "Repos": st.column_config.NumberColumn(format="%d"),
+        "Share %": st.column_config.ProgressColumn(
+            min_value=0, max_value=100, format="%.1f%%"
+        ),
     }
 )
 
 # ============================================================
 # Footer
 # ============================================================
-st.divider()
-st.markdown(
-    """
-    <div style="text-align: center; color: #484f58; font-size: 0.8rem;">
-        Built with ❤️ for <a href="https://github.com/DataTalksClub/data-engineering-zoomcamp" style="color: #58a6ff;">
-        DE Zoomcamp 2026</a> |
-        Data: <a href="https://www.gharchive.org/" style="color: #58a6ff;">GH Archive</a> (Feb 17, 2026, 203K+ events)
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; color: #484f58; font-size: 0.8rem; padding: 1rem;">
+    Built for <a href="https://github.com/DataTalksClub/data-engineering-zoomcamp" style="color: #7c3aed;">
+    DE Zoomcamp 2026</a> &nbsp;·&nbsp;
+    Data: <a href="https://www.gharchive.org/" style="color: #7c3aed;">GH Archive</a> &nbsp;·&nbsp;
+    <a href="https://github.com/barshal-horse/github-activity-tracker" style="color: #7c3aed;">Source Code</a>
+</div>
+""", unsafe_allow_html=True)

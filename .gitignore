@@ -44,3 +44,6 @@ Thumbs.db
 *.json
 !dbt/github_analytics/dbt_project.yml
 !dbt/github_analytics/packages.yml
+
+# Streamlit secrets (contains GCP credentials)
+.streamlit/secrets.toml
