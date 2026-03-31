@@ -4,12 +4,6 @@ An end-to-end data engineering pipeline that ingests, processes, and visualizes 
 
 🟢 **Live Dashboard:** [GitHub Activity Tracker (Streamlit)](https://app-activity-tracker-ebvyfbypjwizccmyv7mx8w.streamlit.app/)
 
-## 📊 Dashboard Preview
-
-![Dashboard Preview](dashboard/assets/dashboard.webp)
-
-*A premium dark-themed dashboard built with Streamlit and Plotly, connected live to BigQuery.*
-
 ---
 
 ## 🏗️ Architecture
